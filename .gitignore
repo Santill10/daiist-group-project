@@ -11,3 +11,5 @@ logs/
 # Never commit your API keys
 .env
 
+data/
+cache/

@@ -20,8 +20,18 @@ import pipeline
 env.load_env()
 LOG_TARGET = logbook.start()
 
-TITLE = "Your product's name"  # TODO
-DESCRIPTION = "One sentence: who it is for and what it does."  # TODO
+TITLE = "Loan Screening Copilot"
+DESCRIPTION = (
+    "For credit analysts at a consumer lender. A risk model scores the loan application and "
+    "Gemini writes a short credit memo; unclear or invalid cases go to a person."
+)
+
+REVIEW_LABELS = {
+    "grey_zone": "risk score in the grey zone",
+    "llm_unavailable": "memo unavailable",
+    "memo_contradicts_score": "memo disagrees with the score",
+    "invalid_input": "not a valid application",
+}
 
 
 def serve(raw_input: str) -> dict:
@@ -38,7 +48,9 @@ def on_run(raw_input):
         raise gr.Error("Give me an input first.")
     record = serve(raw_input)
     outputs = record["outputs"]
-    status = "⚠️ **Sent to a person for review.**" if record["review"] else "✅ Handled automatically."
+    reasons = outputs["component_b"].get("review_reasons", [])
+    why = ", ".join(REVIEW_LABELS.get(r, r) for r in reasons)
+    status = f"⚠️ **Sent to a person for review** ({why})." if record["review"] else "✅ Handled automatically."
     return (
         outputs["component_a"],
         outputs["component_b"]["reply"],
@@ -81,12 +93,25 @@ with gr.Blocks(title=TITLE) as demo:
 
     with gr.Tab("App"):
         request_id = gr.State("")
-        # TODO: your input. For images: gr.Image(type="filepath"); for files: gr.File(type="filepath").
-        raw_input = gr.Textbox(label="Customer message", lines=4)
+        raw_input = gr.Textbox(
+            label="Loan application (one line)",
+            placeholder="loan_amnt=12000; term=36; int_rate=13.5; grade=C; annual_inc=52000; dti=18.2; emp_length=3; home_ownership=RENT; purpose=debt_consolidation",
+            lines=3,
+        )
+        gr.Examples(
+            examples=[
+                ["loan_amnt=8000; term=36; int_rate=7.5; grade=A; annual_inc=95000; dti=8.0; emp_length=8; home_ownership=MORTGAGE; purpose=credit_card"],
+                ["loan_amnt=24000; term=60; int_rate=12.3; grade=C; annual_inc=150000; dti=15.1; emp_length=0; home_ownership=RENT; purpose=debt_consolidation"],
+                ["loan_amnt=20000; term=60; int_rate=24.9; grade=F; annual_inc=32000; dti=32.0; emp_length=1; home_ownership=RENT; purpose=small_business"],
+                ["what is the weather in Madrid tomorrow?"],
+            ],
+            inputs=raw_input,
+            label="Examples (fictional applications; the last one is out of scope)",
+        )
         run_button = gr.Button("Run", variant="primary")
         with gr.Row():
-            out_a = gr.JSON(label="Component A")
-            out_b = gr.Textbox(label="Component B", lines=4)
+            out_a = gr.JSON(label="Component A: risk model")
+            out_b = gr.Textbox(label="Component B: credit memo", lines=6)
         status = gr.Markdown()
         with gr.Row():
             up = gr.Button("👍")
