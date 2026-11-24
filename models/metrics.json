@@ -1,0 +1,27 @@
+{
+  "chosen": "hist_gradient_boosting",
+  "n_loans": 200000,
+  "default_rate": 0.1948,
+  "test_metrics": {
+    "logistic_regression": {
+      "auc": 0.6991,
+      "pr_auc": 0.3503,
+      "brier": 0.1443
+    },
+    "random_forest": {
+      "auc": 0.7006,
+      "pr_auc": 0.3559,
+      "brier": 0.144
+    },
+    "hist_gradient_boosting": {
+      "auc": 0.703,
+      "pr_auc": 0.3571,
+      "brier": 0.1436
+    },
+    "hist_gradient_boosting_calibrated": {
+      "auc": 0.703,
+      "pr_auc": 0.3571,
+      "brier": 0.1437
+    }
+  }
+}
