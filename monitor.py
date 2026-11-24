@@ -16,9 +16,9 @@ REFERENCE_FILE = ROOT / "monitoring" / "reference_features.csv"
 
 PSI_BINS = 5           # quantile bins of the reference; few, because samples are small
 PSI_ALERT = 0.25       # PLACEHOLDER: alert when a feature's PSI exceeds this...
-NOISE_MULTIPLE = 2     # ...and this many times the PSI expected by chance (psi_noise)
+NOISE_MULTIPLE = 5     # ...and this many times the PSI expected by chance (psi_noise)
 WINDOW = 100           # the drift check looks at the last WINDOW requests...
-MIN_WINDOW = 20        # ...and stays silent with fewer than this
+MIN_WINDOW = 40        # ...and stays silent with fewer than this
 THUMBS_DOWN_ALERT = 0.4  # PLACEHOLDER: alert when this share of rated requests is 👎
 
 

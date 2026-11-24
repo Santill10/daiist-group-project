@@ -77,6 +77,7 @@ def input_features(text: str) -> dict[str, float]:
         app = parse_application(text)
     except ApplicationError:
         return {"n_words": float(len(text.split()))}
+    a = component_a(app)  # the model's own output is a feature too: its drift matters most
     return {
         "loan_amnt": app["loan_amnt"],
         "int_rate": app["int_rate"],
@@ -84,6 +85,8 @@ def input_features(text: str) -> dict[str, float]:
         "annual_inc": app["annual_inc"],
         "term": app["term"],
         "grade_num": GRADE_NUM[app["grade"]],
+        "p_default": a["probability_default"],
+        "confidence": a["confidence"],
     }
 
 
@@ -234,7 +237,7 @@ def run(raw_input: str) -> dict:
     b = {**b, "review_reasons": reasons, "reply": b["memo"]}
     return {
         "input_summary": to_text(app),
-        "features": input_features(text) | {"p_default": a["probability_default"], "confidence": a["confidence"]},
+        "features": input_features(text),
         "outputs": {"component_a": a, "component_b": b},
         "versions": dict(VERSIONS),
         "review": bool(reasons),

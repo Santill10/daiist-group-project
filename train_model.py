@@ -90,6 +90,10 @@ def main() -> None:
         df[NUM + CAT], df["target"], test_size=0.25, stratify=df["target"], random_state=42)
     print(f"{len(df):,} loans, default rate {df['target'].mean():.1%}")
 
+    # Rows the model never saw: make_eval_files.py builds the evaluation files from them.
+    Path("data").mkdir(exist_ok=True)
+    X_te.assign(target=y_te).to_csv("data/test_split.csv", index=False)
+
     results = {}
     for name, build in CANDIDATES.items():
         results[name] = scores(build().fit(X_tr, y_tr), X_te, y_te)
