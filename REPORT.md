@@ -54,6 +54,46 @@ The row that applies is the share our review rule sends to a person on the evalu
 
 *What you log. The quality signal and the drift check you monitor, the reference set, and the alert threshold with its justification. The drift demo: what you shifted, and the result with the alert firing (screenshot or numbers). The rate of false alarms on normal inputs.*
 
+*Written by P6 (Francisco). Every number comes from `uv run python tune_alert.py` or `uv run python main.py drift-demo`, run on 25 Nov with the model in `main` at that date. Neither command calls Gemini.*
+
+**What we log.** Every request is one record (`logbook.py`): the required fields (input summary without personal data, features, outputs of both components, versions, review flag, latency, tokens, cost) plus four fields for monitoring: `p_default`, `band`, `recommendation` and `review_reasons`. Thumbs up/down are a second table. On Render the logs go to Postgres, so they survive restarts.
+
+**What the Monitoring tab shows.** Over time: share of cases sent to review, share of 👎 among rated cases, mean probability of default and mean model confidence. In the summary: requests, share sent to review, each review reason (grey zone, memo contradicts score, Gemini unavailable, invalid input) as a share of requests, median and 95th-percentile latency, cost per request and total cost, and the drift table.
+
+**Drift check.** For 8 numbers of each request (loan amount, interest rate, DTI, income, term, grade, and the model's probability of default and confidence) we compare the last 100 requests with a reference set of 200 normal held-out Lending Club applications (`eval/reference.csv` -> `monitoring/reference_features.csv`) using the population stability index (PSI, 5 bins). Because PSI is high by chance with small samples, a feature alerts only if its PSI is above 0.25 **and** above 5 times the PSI expected by chance for those sample sizes, and only once there are at least 40 requests.
+
+**Drift demo.** `eval/shifted.csv` holds 50 applications from another customer segment: larger loans, worse grades, more small-business loans. Result of `main.py drift-demo`:
+
+| Feature | PSI, 50 normal cases | PSI, 50 shifted cases | Threshold |
+|---|---|---|---|
+| loan_amnt | 0.039 | 3.082 | 0.5 |
+| int_rate | 0.216 | 2.684 | 0.5 |
+| dti | 0.104 | 2.298 | 0.5 |
+| annual_inc | 0.134 | 0.063 | 0.5 |
+| term | 0.001 | 0.003 | 0.5 |
+| grade_num | 0.150 | 4.600 | 0.5 |
+| p_default | 0.231 | 4.287 | 0.5 |
+| confidence | 0.236 | 4.302 | 0.5 |
+
+Normal inputs: quiet. Shifted inputs: alert on 6 of 8 features.
+
+**False alarms and detection (`tune_alert.py`, 200 random windows each).** The first placeholder rule (window 20, 2 x noise) fired on about half of the windows of normal traffic.
+
+| NOISE_MULTIPLE | Window | False alarms, normal traffic | Detection, shifted traffic |
+|---|---|---|---|
+| 2 | 20 | 54% | 100% |
+| 3 | 40 | 16% | 100% |
+| 4 | 40 | 5% | 100% |
+| **5** | **40** | **2%** | **100%** |
+| 5 | 50 | 2% | 100% |
+| 6 | 40 | 0.5% | 100% |
+
+We keep **NOISE_MULTIPLE = 5 and MIN_WINDOW = 40**: it catches the shifted segment every time and false-alarms on about 1 window in 50. Going to 6 cuts false alarms to 0.5% but makes partial shifts harder to see. How big a shift must be (same rule, window 40): if 10% of the traffic comes from the new segment it is caught 2% of the time, 30% -> 17%, 50% -> 76%, 100% -> 100%. So the alert is meant for a real change of customer mix (half the traffic or more), not for a few unusual applications; those still reach a person through the review rule.
+
+**Thumbs-down alert.** It fires when more than 30% of at least 40 rated requests are 👎 (`THUMBS_DOWN_ALERT = 0.3`, was 0.4). With a binomial model: if analysts normally give 👎 to 15% of memos (assumption: we have no real feedback yet), it fires by chance with probability 0.4%; at 10% it practically never does. If quality really drops to 50% 👎 it fires 99% of the time, and at 35% about 69%. The old 40% threshold caught a drop to 35% only 20% of the time.
+
+**Limits.** (1) `data/test_split.csv` was not available to P6, so normal traffic was simulated with the 250 real held-out loans we have (reference + normal cases), split at random into a reference of 200 and windows of at most 50. Windows of 60 and 100 (the size the app actually checks) must be re-measured with `test_split.csv`. (2) The 15% usual 👎 rate is an assumption until there is real feedback. (3) If the model is retrained, `p_default` and `confidence` change: rerun `main.py reference` and `tune_alert.py`.
+
 ## Failures
 
 *Failed end-to-end cases grouped by cause (which component, or the hand-off between them), with counts, and what you would fix first.*
