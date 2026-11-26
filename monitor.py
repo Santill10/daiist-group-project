@@ -1,9 +1,11 @@
 """
 Monitoring: quality signals over time, drift against the reference set, alerts.
 
-The thresholds below are PLACEHOLDERS. Choose yours and justify them in
-REPORT.md: how many false alarms on normal inputs you accept, and how big a
-shift has to be before it matters for your product.
+Thresholds chosen by P6 with `uv run python tune_alert.py` (numbers in REPORT.md,
+Operations). Drift: with MIN_WINDOW 40 and NOISE_MULTIPLE 5 the alert fired on 2% of
+random windows of normal traffic and on 100% of windows of the shifted segment.
+Thumbs-down: > 30% 👎 among at least 40 ratings fires by chance with probability under
+0.5% if the usual 👎 rate is 15% or less, and catches a real rise to 50% 99% of the time.
 """
 
 from pathlib import Path
@@ -15,11 +17,11 @@ ROOT = Path(__file__).resolve().parent
 REFERENCE_FILE = ROOT / "monitoring" / "reference_features.csv"
 
 PSI_BINS = 5           # quantile bins of the reference; few, because samples are small
-PSI_ALERT = 0.25       # PLACEHOLDER: alert when a feature's PSI exceeds this...
+PSI_ALERT = 0.25       # usual rule of thumb for a large shift; alert when a feature's PSI exceeds this...
 NOISE_MULTIPLE = 5     # ...and this many times the PSI expected by chance (psi_noise)
 WINDOW = 100           # the drift check looks at the last WINDOW requests...
 MIN_WINDOW = 40        # ...and stays silent with fewer than this
-THUMBS_DOWN_ALERT = 0.4  # PLACEHOLDER: alert when this share of rated requests is 👎
+THUMBS_DOWN_ALERT = 0.3  # alert when more than this share of rated requests is 👎 (needs MIN_WINDOW ratings)
 
 
 def _bin(values: np.ndarray, reference: np.ndarray, bins: int) -> np.ndarray:
@@ -105,6 +107,8 @@ def quality(logs: pd.DataFrame, freq: str = "h") -> pd.DataFrame:
     })
     if "f_confidence" in df:
         signals["mean confidence"] = df["f_confidence"].resample(freq).mean()
+    if "f_p_default" in df:
+        signals["mean probability of default"] = df["f_p_default"].resample(freq).mean()
     long = signals.reset_index(names="time").melt("time", var_name="signal", value_name="value")
     return long.dropna()
 
@@ -121,8 +125,25 @@ def summary(logs: pd.DataFrame) -> pd.DataFrame:
         "median latency (s)": round(float(logs["latency_s"].median()), 2),
         "mean cost per request (€)": round(float(logs["cost_eur"].mean()), 5),
         "total cost (€)": round(float(logs["cost_eur"].sum()), 4),
+        "p95 latency (s)": round(float(logs["latency_s"].quantile(0.95)), 2),
+        "mean probability of default": f"{logs['f_p_default'].mean():.1%}" if "f_p_default" in logs else "-",
     }
+    for reason, share in review_reasons(logs).items():
+        rows[f"review reason: {reason}"] = f"{share:.0%} of requests"
     return pd.DataFrame({"metric": list(rows), "value": [str(v) for v in rows.values()]})
+
+
+def review_reasons(logs: pd.DataFrame) -> pd.Series:
+    """Share of all requests that carry each review reason (a request can have several)."""
+    if logs.empty:
+        return pd.Series(dtype=float)
+    from_outputs = (logs["outputs"] if "outputs" in logs else pd.Series([{}] * len(logs), index=logs.index)).map(
+        lambda o: (o or {}).get("component_b", {}).get("review_reasons", []) if isinstance(o, dict) else [])
+    if "review_reasons" in logs:  # field added by logbook.monitoring_fields; older logs only have outputs
+        reasons = logs["review_reasons"].where(logs["review_reasons"].map(lambda r: isinstance(r, list)), from_outputs)
+    else:
+        reasons = from_outputs
+    return reasons.explode().dropna().value_counts() / len(logs)
 
 
 def alerts(logs: pd.DataFrame, reference: pd.DataFrame | None) -> list[str]:

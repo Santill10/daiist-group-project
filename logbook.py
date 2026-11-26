@@ -116,9 +116,26 @@ def validate(record: dict) -> list[str]:
     return problems
 
 
+def monitoring_fields(record: dict) -> dict:
+    """Extra fields worth watching, copied from the outputs so the Monitoring tab can read them.
+
+    Added by P6; none of REQUIRED_FIELDS changes. Invalid inputs have no score, so
+    p_default and band are None for them.
+    """
+    outputs = record.get("outputs", {})
+    a, b = outputs.get("component_a", {}), outputs.get("component_b", {})
+    return {
+        "p_default": a.get("probability_default"),
+        "band": a.get("band"),
+        "recommendation": b.get("recommendation"),
+        "review_reasons": list(b.get("review_reasons", [])),
+    }
+
+
 def log_request(record: dict) -> dict:
     """Add id and timestamp, check the fields, save. Returns the record as logged."""
     record = {"id": uuid.uuid4().hex, "timestamp": datetime.now(timezone.utc).isoformat()} | record
+    record = monitoring_fields(record) | record  # never overwrites a field the caller set
     problems = validate(record)
     if problems:
         raise ValueError("Log record does not match logbook.REQUIRED_FIELDS: " + "; ".join(problems))
