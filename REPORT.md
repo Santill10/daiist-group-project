@@ -42,6 +42,48 @@ The row that applies is the share our review rule sends to a person on the evalu
 
 *Each component on its own: the metric, the result, the test data and its size.*
 
+#### Component A: credit-risk model
+
+*Written by P2 (Juan). Every number comes from `uv run python train_model.py --csv <lending club .gz> --max-rows 200000` and is saved in `models/metrics.json`; the plot is `models/calibration.png`.*
+
+**Data and split.** 200,000 loans sampled from the 1,345,350 finished Lending Club loans (Fully Paid vs. Charged Off / Default), default rate 19.5%. Only the 9 application fields and the outcome are read. Stratified split: test 50,000 (the same 25% as before, so the `eval/` files built from `data/test_split.csv` are still held out: all 265 of their loans are in it), validation 30,000, train 120,000. Models, calibration and the threshold were chosen on validation; the test set is only reported.
+
+**Models compared (test set).** Metrics that fit a probability used for a cost decision: AUC (ranking), PR-AUC (ranking on the minority class, defaults), Brier score (accuracy of the probability itself).
+
+| Model | AUC | PR-AUC | Brier | Size |
+|---|---|---|---|---|
+| Logistic regression (C=1; C=0.1 the same) | 0.699 | 0.350 | 0.144 | 2 KB |
+| Logistic regression, balanced class weights | 0.699 | 0.350 | 0.220 | 2 KB |
+| Random forest (leaf 200 / depth 10 leaf 100) | 0.700 / 0.701 | 0.355 / 0.356 | 0.144 | 1.1 / 1.7 MB |
+| Random forest, balanced class weights | 0.700 | 0.355 | 0.218 | 1.2 MB |
+| Gradient boosting, depth 4, lr 0.08 (previous model) | 0.703 | 0.358 | 0.144 | 56 KB |
+| Gradient boosting, depth 3, lr 0.05, 400 trees | 0.703 | 0.358 | 0.144 | 74 KB |
+| Gradient boosting, depth 4, lr 0.03, 600 trees, L2 | 0.702 | 0.357 | 0.144 | 105 KB |
+| Gradient boosting, depth 4, balanced class weights | 0.702 | 0.357 | 0.218 | 55 KB |
+| **Gradient boosting, depth 6, lr 0.05, 300 trees + sigmoid calibration (chosen)** | **0.703** | **0.357** | **0.144** | **137 KB** |
+
+Chosen: the highest validation PR-AUC under 5 MB (validation AUC 0.714, PR-AUC 0.368). Read honestly, all gradient-boosting settings are within 0.001 AUC of each other on test, below the noise of a 50,000-loan sample (about ±0.003), and only 0.004 above logistic regression. With 9 application fields, the interest rate and grade (already the lender's own risk price) carry most of the signal. Tuning depth or learning rate does not help; the next gain would need more information about the borrower (credit history), not a bigger model. Balanced class weights do not improve ranking and spoil the probabilities (Brier 0.22: where 19% of loans default they predict about 48%). That matters, because the thresholds below read the probability as a real default rate.
+
+**Calibration.** Sigmoid (Platt) calibration on 3 folds of the training data, chosen over isotonic on validation Brier (0.14221 vs 0.14225). On the test set, in each of the 10 deciles of predicted risk the observed default rate is within 1.5 points of the prediction (lowest decile 4.3% predicted, 4.2% observed; highest 44.7% vs 43.7%). See `models/calibration.png`.
+
+**Cost of errors.** For an average application ($14,612 at 13.2%, a mix of 36 and 60 months):
+
+- *Approving a loan that defaults* loses LGD × amount. Central LGD 55%: Lending Club loans usually charge off after a year or more of payments, so part of the principal and interest has come back, and recoveries after charge-off are small. Cost: about **$8,000**.
+- *Declining a good customer* loses the margin we would have earned: amount × (interest rate − 4% funding and operating cost) × years of balance outstanding (half the term for an amortising loan, × 0.8 because many good borrowers prepay). Cost: about **$2,200**.
+
+Ratio 3.7, so approving pays off below a probability of default of 2,200 / (2,200 + 8,000) = **21.5%**. Because the figures are assumptions, we also ran a low-ratio case (LGD 45%, funding 3%, little prepayment: ratio 2.4, break-even 29%) and a high-ratio case (LGD 65%, funding 5%, more prepayment: ratio 5.5, break-even 15%). On validation the cost-minimising threshold was 30%, 21% and 16%, within one point of the theory in every case, which confirms that the probabilities are calibrated. On test, the central threshold cuts the cost of errors per application from $1,565 (approve everyone) to $1,173 (−25%).
+
+**Thresholds this implies (for P1 and P5).** Approve below **15%** (the decision is "approve" even under the pessimistic costs), decline at **29%** or above (it is "decline" even under the optimistic costs), and send to a person in between, where the right decision depends on which cost figure is true. On the 50,000 test loans:
+
+| Policy | Approved | Review | Declined | Default rate: approved / review / declined |
+|---|---|---|---|---|
+| 15% / 29% (recommended) | 43% | 37% | 20% | 9.4% / 21.3% / 37.4% |
+| 12% / 40% (current placeholder) | 33% | 60% | 7% | 7.9% / 22.6% / 45.5% |
+
+The current placeholder sends 60% of applications to a person (36 of the 50 normal cases in `eval/cases.csv`), and declines only above 40% although the break-even is about 21%. With 15% / 29%, 37% go to review, close to the 35% row of the business case. Limit: the break-even varies a lot by grade (central costs: 7% for grade A, whose thin margin barely covers a default, up to 45% for G), so a later version could use one threshold per grade.
+
+**Drivers.** For each feature, the applicant's value is swapped for those of 100 real training applicants (saved in the model file) and the probabilities are averaged; the driver's effect is the applicant's probability minus that average. This replaced a single median value, which for categories such as grade or purpose compared every applicant with one arbitrary "typical" value. It takes about 20–30 ms per request.
+
 ### End to end
 
 *How you wrote `eval/cases.csv` (counts by kind, two examples). Results against the baseline. Where the output is free text: the judge's rubric and your agreement with it on your own labels.*

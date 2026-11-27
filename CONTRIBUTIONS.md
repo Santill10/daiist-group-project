@@ -28,6 +28,7 @@
 - 2026-11-24, Santiago: built the evaluation files (`eval/cases.csv`, `reference.csv`, `shifted.csv`) and tuned the drift alert on real data (`tune_alert.py`, `monitor.py`).
 - 2026-11-24, Santiago: deployed the app on Render with its Postgres database and ran `check.py` against the live URL.
 - 2026-11-25, Francisco: monitoring (P6). Added the monitoring fields to `logbook.py` (p_default, band, recommendation, review reasons), the PD, p95-latency and review-reason signals to `monitor.py`, fixed `tune_alert.py` (MIN_WINDOW now follows the window, fallback without `test_split.csv`, partial-shift and thumbs-down tables), set `THUMBS_DOWN_ALERT` to 0.3 and wrote the Operations section of `REPORT.md`.
+- 2026-11-27, Juan: Component A (P2). Compared 11 models and settings (logistic regression, random forest, gradient boosting; depth, learning rate, regularisation, class weights) on a new validation split, chose and calibrated the final model, added PR-AUC, Brier, log loss, calibration curves (`models/calibration.png`) and a cost-of-errors analysis with the thresholds it implies (15% / 29%), and replaced the median-value drivers with an average over 100 background applicants.
 
 ## Log
 

@@ -103,18 +103,32 @@ def _bundle() -> dict:
 def component_a(app: dict) -> dict:
     """Probability of default, and the 3 features that move it most.
 
-    Drivers: replace each feature by its typical value (median / most common) and
-    see how much the probability changes. Works with any model.
+    Drivers: for each feature, swap the applicant's value for the values of 100 real
+    applicants from the training data (the bundle's "background"), keep everything else,
+    and average the probabilities. effect_pp = this applicant's probability minus that
+    average: how much this feature's value moves the risk compared with typical applicants.
+    Averaging over many applicants is steadier than one median value (a single "typical"
+    grade or purpose can sit on a step of the trees). Works with any model; ~900 rows, a few ms.
     """
     b = _bundle()
     cols = b["features"]
     row = pd.DataFrame([{c: app[c] for c in cols}])
     p = float(b["model"].predict_proba(row)[0, 1])
 
-    alt = pd.concat([row] * len(cols), ignore_index=True)
-    for i, c in enumerate(cols):
-        alt.loc[i, c] = b["defaults"][c]
-    base_probs = b["model"].predict_proba(alt)[:, 1]
+    bg = b.get("background")
+    if bg is None:  # older bundles: one typical value per feature
+        alt = pd.concat([row] * len(cols), ignore_index=True)
+        for i, c in enumerate(cols):
+            alt.loc[i, c] = b["defaults"][c]
+        base_probs = b["model"].predict_proba(alt)[:, 1]
+    else:
+        frames = []
+        for c in cols:
+            f = pd.concat([row] * len(bg), ignore_index=True)
+            f[c] = bg[c].to_numpy()
+            frames.append(f)
+        probs = b["model"].predict_proba(pd.concat(frames, ignore_index=True))[:, 1]
+        base_probs = probs.reshape(len(cols), len(bg)).mean(axis=1)
     effects = sorted(zip(cols, base_probs), key=lambda cp: -abs(p - cp[1]))[:3]
     drivers = [{"feature": c, "value": app[c], "effect_pp": round(100 * (p - float(q)), 1)} for c, q in effects]
 
